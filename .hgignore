@@ -1,0 +1,6 @@
+syntax: glob
+lisp.prof
+scratch.lisp
+build/batty.app
+*.log
+bin
