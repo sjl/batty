@@ -10,14 +10,21 @@
   (merge-pathnames #p"assets/" (deploy:data-directory)))
 
 
-(defvar *player* nil)
-
-(defvar *inputs* (make-hash-table))
-
-
 (defparameter *player-velocity* 13.5) ; world cells per second
 (defparameter *player-breath-time* 0.2)
 (defparameter *player-breath-distance* 0.2)
+
+
+(defparameter *terrain-bottom-offset* 10000.0)
+(defparameter *terrain-noise-scale* 0.2)
+(defparameter *terrain-max-height-top* 20.0)
+(defparameter *terrain-max-height-bottom* 10.0)
+(defparameter *terrain-seed* 0.0)
+
+(defvar *player* nil)
+(defvar *inputs* (make-hash-table))
+(defvar *camera-x* 0)
+(defvar *camera-y* 0)
 
 
 ;;;; Config -------------------------------------------------------------------
@@ -51,6 +58,22 @@
   (config-fonts))
 
 
+;;;; Terrain ------------------------------------------------------------------
+(defun noise-value-to-terrain-height (v bottom?)
+  (-<> v
+    (+ <> 1)
+    (/ <> 2)
+    (* <> (if bottom? *terrain-max-height-bottom* *terrain-max-height-top*))))
+
+(defun terrain-height (x bottom?)
+  (1+ (noise-value-to-terrain-height
+        (black-tie:simplex-noise-1d
+          (+ *terrain-seed*
+             (* x *terrain-noise-scale*)
+             (if bottom? *terrain-bottom-offset* 0.0)))
+        bottom?)))
+
+
 ;;;; Aspects ------------------------------------------------------------------
 (define-aspect loc
   (x :initform 0.0 :type single-float)
@@ -71,7 +94,9 @@
 
 (defun make-player ()
   (create-entity 'player
-    :renderable/glyph #\@))
+    :renderable/glyph #\@
+    :loc/x (/ *screen-width* 2.0)
+    :loc/y (/ *screen-height* 2.0)))
 
 (defun tick-player-input (player)
   (setf
@@ -105,45 +130,79 @@
 
 
 ;;;; Game Logic ---------------------------------------------------------------
+(defun tick-camera ()
+  (when (>= (- (loc/x *player*) *camera-x*)
+            (* 0.90 *screen-width*))
+    (incf *camera-x* 10)))
+
 (defun tick (delta-time)
-  (tick-player *player* delta-time))
+  (tick-player *player* delta-time)
+  (tick-camera))
 
 
 ;;;; UI -----------------------------------------------------------------------
-(defun screen-coord (c)
-  "Translate a world coordinate into a screen coordinate.
+(defun screen-coords (x y)
+  "Translate world coordinates into screen coordinates.
 
-  Returns two values:
+  Returns four values:
 
-  * The main screen coordinate
-  * The pixel offset into that tile.
+  * The main screen coordinates
+  * The pixel offsets into that tile
 
   "
-  (multiple-value-bind (main rem)
-      (truncate (* 2 c))
-    (values main (truncate (* *cell-size* rem)))))
+  (nest (multiple-value-bind (sx xr) (truncate (* 2 (- x *camera-x*))))
+        (multiple-value-bind (sy yr) (truncate (* 2 (- y *camera-y*))))
+        (values sx sy
+                (truncate (* *cell-size* xr))
+                (truncate (* *cell-size* yr)))))
 
-
-(defun blit-renderable (entity)
-  (nest (multiple-value-bind (x dx) (screen-coord (loc/x entity)))
-        (multiple-value-bind (y dy) (screen-coord (loc/y entity)))
-        (setf (blt:color) (renderable/color entity)
-              (blt:cell-char x y dx dy) (renderable/glyph entity))))
 
 (defun blit-player (entity)
-  (nest (multiple-value-bind (x dx) (screen-coord (loc/x entity)))
-        (multiple-value-bind (y dy) (screen-coord (loc/y entity)))
-        (setf (blt:color) (renderable/color entity)
-              (blt:cell-char x y dx dy) (renderable/glyph entity)
-              (blt:cell-char (1- x) y dx (- dy 4)) #\^
-              (blt:cell-char (1+ x) y dx (- dy 4)) #\^)))
+  (setf (blt:layer) 2)
+  (multiple-value-bind (x y dx dy)
+      (screen-coords (loc/x entity) (loc/y entity))
+    (setf (blt:color) (renderable/color entity)
+          (blt:cell-char x y dx dy) (renderable/glyph entity)
+          (blt:cell-char (1- x) y dx (- dy 4)) #\^
+          (blt:cell-char (1+ x) y dx (- dy 4)) #\^)))
+
+
+(defun blit-background-tile (x y bottom?)
+  (multiple-value-bind (sx sy)
+      (screen-coords x y)
+    (setf
+      ;; shittastic hack because BLT fucks up the spacing when
+      ;; drawing an opaque background on non-1x1 fonts
+      (blt:color) (blt:blue :saturation 0.8 :value 0.4)
+      (blt:cell-char sx sy) #\FULL_BLOCK
+      (blt:color) (blt:blue :saturation 0.7 :value 0.9)
+      (blt:cell-char sx sy) (if bottom? #\M #\W))))
+
+(defun blit-background-column (x bottom?)
+  (let ((height (terrain-height x bottom?)))
+    (if bottom?
+      (iterate (for y :downfrom (1- *screen-height*))
+               (repeat height)
+               (blit-background-tile x y bottom?))
+      (iterate (for y :from 0)
+               (repeat height)
+               (blit-background-tile x y bottom?)))))
+
+(defun blit-background ()
+  (setf (blt:layer) 0
+        (blt:font) "tile"
+        (blt:color) (blt:blue :saturation 0.8 :value 0.8))
+  (iterate (for x :from *camera-x*)
+           (repeat *screen-width*)
+           (blit-background-column x t)
+           (blit-background-column x nil)))
+
 
 (defun blit ()
   (blt:clear)
-  (setf (blt:color) (blt:blue) (blt:layer) 1 (blt:font) "tile")
-  (dotimes (i *screen-height*)
-    (blt:print 0 (* 2 i) (make-string *screen-width* :initial-element #\#)))
-  (setf (blt:layer) 2)
+  (setf (blt:font) "tile"
+        (blt:composition) t)
+  (blit-background)
   (blit-player *player*)
   (blt:refresh))
 
@@ -152,14 +211,15 @@
 (defun event ()
   (if (blt:has-input-p)
     (blt:key-case (blt:read)
-      ((:w :down) '(:keydown :up))
-      ((:a :down) '(:keydown :left))
-      ((:s :down) '(:keydown :down))
-      ((:d :down) '(:keydown :right))
-      ((:w :up) '(:keyup :up))
-      ((:a :up) '(:keyup :left))
-      ((:s :up) '(:keyup :down))
-      ((:d :up) '(:keyup :right))
+      ((or (:up    :down) (:w :down)) '(:keydown :up))
+      ((or (:left  :down) (:a :down)) '(:keydown :left))
+      ((or (:down  :down) (:s :down)) '(:keydown :down))
+      ((or (:right :down) (:d :down)) '(:keydown :right))
+      ((or (:up    :up)   (:w :up))   '(:keyup :up))
+      ((or (:left  :up)   (:a :up))   '(:keyup :left))
+      ((or (:down  :up)   (:s :up))   '(:keyup :down))
+      ((or (:right :up)   (:d :up))   '(:keyup :right))
+      (:f1 '(:regen))
       (:escape '(:quit))
       (:close '(:quit)))
     :done))
@@ -167,6 +227,7 @@
 (defun handle-event (event)
   (ecase (first event)
     (:quit (setf *running* nil))
+    (:regen (initialize))
     (:keydown (setf (gethash (second event) *inputs*) t))
     (:keyup (setf (gethash (second event) *inputs*) nil))))
 
@@ -183,6 +244,9 @@
   (clrhash *inputs*)
   (clear-entities)
   (setf *running* t
+        *camera-x* 0
+        *camera-y* 0
+        *terrain-seed* (random 500000.0)
         *player* (make-player)))
 
 (defun run ()
