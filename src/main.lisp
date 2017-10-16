@@ -12,7 +12,6 @@
 
 (defparameter *player-velocity* 13.5) ; world cells per second
 (defparameter *player-breath-time* 0.2)
-(defparameter *player-breath-distance* 0.2)
 
 
 (defparameter *terrain-bottom-offset* 10000.0)
@@ -88,9 +87,30 @@
   (color :initform (blt:white)))
 
 
+;;;; Collision ----------------------------------------------------------------
+(defun terrain-at-p (x y)
+  (or (<= y (terrain-height x nil))
+      (>= y (- *screen-height* 1 (terrain-height x t)))))
+
+(defun collides-with-terrain-p (x y)
+  ;; ab
+  ;; 12c
+  ;; 34d
+  (let ((a (round (- x 0.4)))
+        (b (round (+ x 0.4)))
+        (c (round (- y 0.4)))
+        (d (round (+ y 0.4))))
+    (or (terrain-at-p a c)
+        (terrain-at-p b c)
+        (terrain-at-p a d)
+        (terrain-at-p b d))))
+
+
+
 ;;;; Player -------------------------------------------------------------------
 (define-entity player (loc renderable moveable)
-  (breath-time :accessor player/breath :initform 0.0))
+  (breath-offset :accessor player/breath-offset :initform 0)
+  (breath-time :accessor player/breath-time :initform 0.0))
 
 (defun make-player ()
   (create-entity 'player
@@ -110,18 +130,23 @@
                            (t 0.0))))
 
 (defun tick-player-position (player delta-time)
-  (incf (loc/x player) (* delta-time (moveable/vx player)))
-  (incf (loc/y player) (* delta-time (moveable/vy player))))
+  (let ((x (loc/x player))
+        (y (loc/y player))
+        (dx (* delta-time (moveable/vx player)))
+        (dy (* delta-time (moveable/vy player))))
+    (unless (collides-with-terrain-p (+ x dx) y)
+      (incf (loc/x player) dx)
+      (incf x dx))
+    (unless (collides-with-terrain-p x (+ y dy))
+      (incf (loc/y player) dy))))
 
 (defun tick-player-breath (player delta-time)
-  (let* ((old (player/breath player))
-         (new (mod (+ old delta-time) (* 2 *player-breath-time*))))
-    (setf (player/breath player) new)
-    (cond
-      ((< new old)
-       (decf (loc/y player) *player-breath-distance*))
-      ((< old *player-breath-time* new)
-       (incf (loc/y player) *player-breath-distance*)))))
+  (let* ((old (player/breath-time player))
+         (new (mod (+ old delta-time) *player-breath-time*)))
+    (setf (player/breath-time player) new)
+    (when (< new old)
+      (zapf (player/breath-offset player)
+            (if (zerop %) 2 0)))))
 
 (defun tick-player (player delta-time)
   (tick-player-input player)
@@ -157,14 +182,15 @@
                 (truncate (* *cell-size* yr)))))
 
 
-(defun blit-player (entity)
+(defun blit-player (player)
   (setf (blt:layer) 2)
   (multiple-value-bind (x y dx dy)
-      (screen-coords (loc/x entity) (loc/y entity))
-    (setf (blt:color) (renderable/color entity)
-          (blt:cell-char x y dx dy) (renderable/glyph entity)
-          (blt:cell-char (1- x) y dx (- dy 4)) #\^
-          (blt:cell-char (1+ x) y dx (- dy 4)) #\^)))
+      (screen-coords (loc/x player) (loc/y player))
+    (let ((dy (+ dy (player/breath-offset player))))
+      (setf (blt:color) (renderable/color player)
+            (blt:cell-char x y dx dy) (renderable/glyph player)
+            (blt:cell-char (1- x) y dx (- dy 4)) #\^
+            (blt:cell-char (1+ x) y dx (- dy 4)) #\^))))
 
 
 (defun blit-background-tile (x y bottom?)
