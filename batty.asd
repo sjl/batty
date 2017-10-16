@@ -8,6 +8,7 @@
   :depends-on (:beast
                :bordeaux-threads
                :deploy
+               :black-tie
                :cl-blt
                :cl-pcg
                :iterate
