@@ -2,7 +2,7 @@
 ;;;; See http://quickutil.org for details.
 
 ;;;; To regenerate:
-;;;; (qtlc:save-utils-as "quickutils.lisp" :utilities '(:CURRY :RCURRY :WITH-GENSYMS) :ensure-package T :package "B.QUICKUTILS")
+;;;; (qtlc:save-utils-as "quickutils.lisp" :utilities '(:CURRY :RCURRY :MAXF :WITH-GENSYMS) :ensure-package T :package "B.QUICKUTILS")
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (unless (find-package "B.QUICKUTILS")
@@ -14,8 +14,8 @@
 
 (when (boundp '*utilities*)
   (setf *utilities* (union *utilities* '(:MAKE-GENSYM-LIST :ENSURE-FUNCTION
-                                         :CURRY :RCURRY :STRING-DESIGNATOR
-                                         :WITH-GENSYMS))))
+                                         :CURRY :RCURRY :MAXF
+                                         :STRING-DESIGNATOR :WITH-GENSYMS))))
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun make-gensym-list (length &optional (x "G"))
     "Returns a list of `length` gensyms, each generated as if with a call to `make-gensym`,
@@ -70,6 +70,11 @@ with and `arguments` to `function`."
         (multiple-value-call fn (values-list more) (values-list arguments)))))
   
 
+  (define-modify-macro maxf (&rest numbers) max
+    "Modify-macro for `max`. Sets place designated by the first argument to the
+maximum of its original value and `numbers`.")
+  
+
   (deftype string-designator ()
     "A string designator type. A string designator is either a string, a symbol,
 or a character."
@@ -114,6 +119,6 @@ unique symbol the named variable will be bound to."
     `(with-gensyms ,names ,@forms))
   
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (export '(curry rcurry with-gensyms with-unique-names)))
+  (export '(curry rcurry maxf with-gensyms with-unique-names)))
 
 ;;;; END OF quickutils.lisp ;;;;

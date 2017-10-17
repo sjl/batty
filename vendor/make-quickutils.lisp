@@ -6,6 +6,7 @@
 
                :curry
                :rcurry
+               :maxf
                :with-gensyms
 
                )

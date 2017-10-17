@@ -6,6 +6,7 @@
 (defparameter *screen-width* 64)
 (defparameter *screen-height* 48)
 (defparameter *cell-size* 8)
+(defparameter *offscreen-buffer* 10)
 
 
 ;;; Directories
@@ -116,6 +117,13 @@
   (time :initform 0.0))
 
 
+(define-system clear-offscreen ((entity loc))
+  (when (< (loc/x entity)
+           (- *camera-x* *offscreen-buffer*))
+    (pr 'killing entity)
+    (destroy-entity entity)))
+
+
 (defun tick-breathing (entity delta-time)
   (let ((time (+ (breathing/time entity) delta-time)))
     (setf (breathing/time entity) time
@@ -216,12 +224,57 @@
     :renderable/glyph #\*
     :renderable/layer *layer-bugs*
     :renderable/color (blt:hsva (random 1.0) 1.0 1.0)
-    :breathing/cycle-time-x 0.2
-    :breathing/cycle-time-y 0.2
-    :breathing/distance-x (random 3.0)
-    :breathing/distance-y (random 3.0)
+    :breathing/cycle-time-x (random-range 0.2 1.0)
+    :breathing/cycle-time-y (random-range 0.2 1.0)
+    :breathing/time (random 10.0)
+    :breathing/distance-x (random-range 1.0 4.0)
+    :breathing/distance-y (random-range 1.0 4.0)
     :loc/x x
     :loc/y y))
+
+
+;;;; Chunk Generation ---------------------------------------------------------
+(defparameter *chunk-size* 100)
+(defparameter *bugs-per-chunk* 10)
+(defvar *current-chunk* -1)
+
+
+(defun chunk (x)
+  (truncate x *chunk-size*))
+
+(defun chunk-needed (x)
+  "Return the rightmost chunk that needs to be generated give a player at `x`."
+  (1+ (chunk x)))
+
+(defun chunk-x (chunk x)
+  (+ (* chunk *chunk-size*) x))
+
+(defun chunk-random-x (chunk)
+  (chunk-x chunk (random *chunk-size*)))
+
+(defun chunk-random-y (x)
+  (random-range (+ (float (terrain-height x nil)) 1)
+                (- *screen-height* (terrain-height x t) 1)))
+
+(defun chunk-random-coords (chunk)
+  (let* ((x (chunk-random-x chunk))
+         (y (chunk-random-y x)))
+    (values x y)))
+
+
+(defun generate-chunk-bugs (chunk)
+  (iterate (repeat *bugs-per-chunk*)
+           (for (values x y) = (chunk-random-coords chunk))
+           (make-bug x y)))
+
+(defun generate-chunk (chunk)
+  (generate-chunk-bugs chunk))
+
+
+(defun ensure-chunk (x)
+  (iterate (for chunk :from *current-chunk* :to (chunk-needed x))
+           (generate-chunk chunk)
+           (finally (maxf *current-chunk* chunk))))
 
 
 ;;;; Game Logic ---------------------------------------------------------------
@@ -373,6 +426,7 @@
   (setf *running* t
         *camera-x* 0
         *camera-y* 0
+        *current-chunk* -1
         *terrain-seed* (random 500000.0)
         *player* (make-player)))
 
@@ -384,6 +438,8 @@
       (with-music
         (iterate
           (while *running*)
+          (ensure-chunk (loc/x *player*)) ; gross
+          (run-clear-offscreen)
           (blit)
           (handle-events)
           (timing real-time :per-iteration-into delta-time)
@@ -414,3 +470,7 @@
 ;; (setf *running* nil)
 ;; (harmony-simple:start)
 ;; (harmony-simple:play (random-song-path) :music)
+
+;; (length (map-entities #'identity))
+;; (clear-entities)
+;; *current-chunk*
