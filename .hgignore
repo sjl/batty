@@ -5,3 +5,4 @@ build/batty.app
 *.log
 bin
 assets/music
+assets/sounds
