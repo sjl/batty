@@ -6,8 +6,12 @@
 (defparameter *screen-width* 64)
 (defparameter *screen-height* 48)
 (defparameter *cell-size* 8)
+
 (defparameter *assets-directory*
   (merge-pathnames #p"assets/" (deploy:data-directory)))
+
+(defparameter *music-directory*
+  (merge-pathnames #p"music/" *assets-directory*))
 
 
 (defparameter *player-velocity* 13.5) ; world cells per second
@@ -286,6 +290,30 @@
       (handle-event event))))
 
 
+;;;; Audio --------------------------------------------------------------------
+(defvar *music* nil)
+
+(defun random-song ()
+  (random-elt (directory (make-pathname :name :wild :type "mp3"
+                                        :defaults *music-directory*))))
+
+(defmacro in-harmony (&body body)
+  `(unwind-protect
+     (progn
+       (harmony-simple:start)
+       ,@body)
+     (harmony-simple:stop)))
+
+(defmacro with-music (&body body)
+  `(unwind-protect
+     (progn
+       (setf *music* (harmony-simple:play (random-song) :music))
+       ,@body)
+     (progn
+       (harmony-simple:stop *music*)
+       (setf *music* nil))))
+
+
 ;;;; Main ---------------------------------------------------------------------
 (defun initialize ()
   (clrhash *inputs*)
@@ -297,15 +325,17 @@
         *player* (make-player)))
 
 (defun run ()
-  (blt:with-terminal
-    (config)
-    (initialize)
-    (iterate
-      (while *running*)
-      (blit)
-      (handle-events)
-      (timing real-time :per-iteration-into delta-time)
-      (tick (/ delta-time internal-time-units-per-second 1.0)))))
+  (in-harmony
+    (blt:with-terminal
+      (config)
+      (initialize)
+      (with-music
+        (iterate
+          (while *running*)
+          (blit)
+          (handle-events)
+          (timing real-time :per-iteration-into delta-time)
+          (tick (/ delta-time internal-time-units-per-second 1.0)))))))
 
 
 ;;;; Entry --------------------------------------------------------------------
@@ -330,3 +360,5 @@
 
 ;;;; Scratch ------------------------------------------------------------------
 ;; (setf *running* nil)
+;; (harmony-simple:start)
+;; (harmony-simple:play (random-song-path) :music)

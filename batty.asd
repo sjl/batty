@@ -11,6 +11,8 @@
                :black-tie
                :cl-blt
                :cl-pcg
+               :harmony
+               :harmony-simple
                :iterate
                :losh)
 
