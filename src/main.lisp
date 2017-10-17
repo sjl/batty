@@ -16,15 +16,26 @@
 (defparameter *music-directory*
   (merge-pathnames #p"music/" *assets-directory*))
 
+(defparameter *sounds-directory*
+  (merge-pathnames #p"sounds/" *assets-directory*))
+
+
+;;; SFX
+(defparameter *sound-chomp*
+  (merge-pathnames #p"chomp.mp3" *sounds-directory*))
+
 
 ;;; Player
 (defparameter *player-velocity* 13.5) ; world cells per second
+
+(defparameter *score* 0)
 
 
 ;;; Layers
 (defparameter *layer-background* 0)
 (defparameter *layer-bugs* 1)
 (defparameter *layer-player* 2)
+(defparameter *layer-hud* 3)
 
 
 ;;; Terrain
@@ -59,8 +70,8 @@
            (* 2 *cell-size*))
   (blt:set "text font: ~A, size=~Dx~D, spacing=1x2;"
            (asset-path "UbuntuMono/UbuntuMono-R.ttf")
-           (* 2 *cell-size*)
-           *cell-size*))
+           *cell-size*
+           (* 2 *cell-size*)))
 
 (defun config ()
   (assert (evenp *cell-size*))
@@ -120,7 +131,6 @@
 (define-system clear-offscreen ((entity loc))
   (when (< (loc/x entity)
            (- *camera-x* *offscreen-buffer*))
-    (pr 'killing entity)
     (destroy-entity entity)))
 
 
@@ -278,15 +288,40 @@
 
 
 ;;;; Game Logic ---------------------------------------------------------------
+(defparameter *bug-eating-range* 1.0)
+
+
+(defun distance (x1 y1 x2 y2)
+  (sqrt (+ (square (- x1 x2))
+           (square (- y1 y2)))))
+
+(defun bug-within-range-p (player bug)
+  (<= (distance (loc/x player) (loc/y player)
+                (loc/x bug) (loc/y bug))
+      *bug-eating-range*))
+
+(defun eat-bugs ()
+  (let ((bugs (remove-if-not (curry #'bug-within-range-p *player*)
+                             (map-entities #'identity 'bug))))
+    (when bugs
+      (play-chomp)
+      (incf *score* (length bugs))
+      (map nil #'destroy-entity bugs))))
+
+
 (defun tick-camera ()
   (when (>= (- (loc/x *player*) *camera-x*)
             (* 0.90 *screen-width*))
     (incf *camera-x* 10)))
 
 (defun tick (delta-time)
+  (run-clear-offscreen)
+  (eat-bugs)
   (tick-player *player* delta-time)
   (tick-breathing-entities delta-time)
-  (tick-camera))
+  (tick-camera)
+  (ensure-chunk (loc/x *player*)))
+
 
 
 ;;;; UI -----------------------------------------------------------------------
@@ -354,12 +389,27 @@
            (blit-background-column x nil)))
 
 
+(defun print-with-background (x y fg bg string)
+  ;; lame, blt
+  (setf (blt:color) bg)
+  (blt:print x y (make-string (length string) :initial-element #\full_block))
+  (setf (blt:color) fg)
+  (blt:print x y string))
+
+(defun blit-hud ()
+  (setf (blt:layer) *layer-hud*
+        (blt:font) "text")
+  (print-with-background 0 0 (blt:white) (blt:black)
+                         (format nil "BUGS EATEN: ~D" *score*)))
+
+
 (defun blit ()
   (blt:clear)
   (setf (blt:font) "tile"
         (blt:composition) t)
   (blit-background)
   (run-render)
+  (blit-hud)
   (blt:refresh))
 
 
@@ -419,6 +469,10 @@
        (setf *music* nil))))
 
 
+(defun play-chomp ()
+  (harmony-simple:play *sound-chomp* :sfx))
+
+
 ;;;; Main ---------------------------------------------------------------------
 (defun initialize ()
   (clrhash *inputs*)
@@ -427,6 +481,7 @@
         *camera-x* 0
         *camera-y* 0
         *current-chunk* -1
+        *score* 0
         *terrain-seed* (random 500000.0)
         *player* (make-player)))
 
@@ -438,8 +493,6 @@
       (with-music
         (iterate
           (while *running*)
-          (ensure-chunk (loc/x *player*)) ; gross
-          (run-clear-offscreen)
           (blit)
           (handle-events)
           (timing real-time :per-iteration-into delta-time)
@@ -469,8 +522,11 @@
 ;;;; Scratch ------------------------------------------------------------------
 ;; (setf *running* nil)
 ;; (harmony-simple:start)
-;; (harmony-simple:play (random-song-path) :music)
+;; (harmony-simple:stop)
 
-;; (length (map-entities #'identity))
-;; (clear-entities)
-;; *current-chunk*
+;; (defparameter *c*
+;;   (harmony-simple:play #p"assets/sounds/chomp.mp3" :sfx :paused nil))
+
+;; (harmony:resume *c*)
+
+;; (harmony-simple:play (random-song-path) :music)
