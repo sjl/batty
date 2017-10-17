@@ -4,3 +4,4 @@ scratch.lisp
 build/batty.app
 *.log
 bin
+assets/music
