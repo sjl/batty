@@ -1,12 +1,14 @@
 (in-package :b)
 
 ;;;; Parameters ---------------------------------------------------------------
-(defvar *running* t)
 
+;;; UI
 (defparameter *screen-width* 64)
 (defparameter *screen-height* 48)
 (defparameter *cell-size* 8)
 
+
+;;; Directories
 (defparameter *assets-directory*
   (merge-pathnames #p"assets/" (deploy:data-directory)))
 
@@ -14,14 +16,20 @@
   (merge-pathnames #p"music/" *assets-directory*))
 
 
+;;; Player
 (defparameter *player-velocity* 13.5) ; world cells per second
 
 
+;;; Terrain
 (defparameter *terrain-bottom-offset* 10000.0)
 (defparameter *terrain-noise-scale* 0.2)
 (defparameter *terrain-max-height-top* 20.0)
 (defparameter *terrain-max-height-bottom* 10.0)
 (defparameter *terrain-seed* 0.0)
+
+
+;;;; State --------------------------------------------------------------------
+(defvar *running* t)
 
 (defvar *player* nil)
 (defvar *inputs* (make-hash-table))
@@ -150,6 +158,7 @@
     :loc/x (/ *screen-width* 2.0)
     :loc/y (/ *screen-height* 2.0)))
 
+
 (defun tick-player-input (player)
   (setf
     (moveable/vy player) (cond
@@ -161,16 +170,23 @@
                            ((gethash :right *inputs*) *player-velocity*)
                            (t 0.0))))
 
+
+(defun left-of-camera-p (x)
+  (< x *camera-x*))
+
 (defun tick-player-position (player delta-time)
-  (let ((x (loc/x player))
-        (y (loc/y player))
-        (dx (* delta-time (moveable/vx player)))
-        (dy (* delta-time (moveable/vy player))))
-    (unless (collides-with-terrain-p (+ x dx) y)
+  (let* ((x (loc/x player))
+         (y (loc/y player))
+         (dx (* delta-time (moveable/vx player)))
+         (dy (* delta-time (moveable/vy player)))
+         (blocked-horizontally (or (collides-with-terrain-p (+ x dx) y)
+                                   (left-of-camera-p (+ x dx)))))
+    (unless blocked-horizontally
       (incf (loc/x player) dx)
       (incf x dx))
     (unless (collides-with-terrain-p x (+ y dy))
       (incf (loc/y player) dy))))
+
 
 (defun tick-player (player delta-time)
   (tick-player-input player)
