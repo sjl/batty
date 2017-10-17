@@ -4,6 +4,8 @@
   "quickutils.lisp"
   :utilities '(
 
+               :curry
+               :rcurry
                :with-gensyms
 
                )

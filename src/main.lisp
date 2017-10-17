@@ -20,6 +20,12 @@
 (defparameter *player-velocity* 13.5) ; world cells per second
 
 
+;;; Layers
+(defparameter *layer-background* 0)
+(defparameter *layer-bugs* 1)
+(defparameter *layer-player* 2)
+
+
 ;;; Terrain
 (defparameter *terrain-bottom-offset* 10000.0)
 (defparameter *terrain-noise-scale* 0.2)
@@ -95,7 +101,8 @@
 
 (define-aspect renderable
   (glyph :initform #\? :type character)
-  (color :initform (blt:white)))
+  (color :initform (blt:white))
+  (layer))
 
 (define-aspect breathing
   ;; parameters
@@ -125,6 +132,9 @@
             (map-range -1.0 1.0 0.0 (breathing/distance-y entity) <>)
             truncate))))
 
+(defun tick-breathing-entities (delta-time)
+  (map-entities (rcurry #'tick-breathing delta-time) 'breathing))
+
 
 ;;;; Collision ----------------------------------------------------------------
 (defun terrain-at-p (x y)
@@ -151,12 +161,17 @@
 (defun make-player ()
   (create-entity 'player
     :renderable/glyph #\@
+    :renderable/layer *layer-player*
     :breathing/cycle-time-x 1.0
     :breathing/cycle-time-y 0.3
     :breathing/distance-x 0.0
     :breathing/distance-y 3.1
     :loc/x (/ *screen-width* 2.0)
     :loc/y (/ *screen-height* 2.0)))
+
+
+(defun playerp (entity)
+  (eq entity *player*))
 
 
 (defun tick-player-input (player)
@@ -190,8 +205,23 @@
 
 (defun tick-player (player delta-time)
   (tick-player-input player)
-  (tick-player-position player delta-time)
-  (tick-breathing player delta-time))
+  (tick-player-position player delta-time))
+
+
+;;;; Bugs ---------------------------------------------------------------------
+(define-entity bug (loc renderable breathing))
+
+(defun make-bug (x y)
+  (create-entity 'bug
+    :renderable/glyph #\*
+    :renderable/layer *layer-bugs*
+    :renderable/color (blt:hsva (random 1.0) 1.0 1.0)
+    :breathing/cycle-time-x 0.2
+    :breathing/cycle-time-y 0.2
+    :breathing/distance-x (random 3.0)
+    :breathing/distance-y (random 3.0)
+    :loc/x x
+    :loc/y y))
 
 
 ;;;; Game Logic ---------------------------------------------------------------
@@ -202,6 +232,7 @@
 
 (defun tick (delta-time)
   (tick-player *player* delta-time)
+  (tick-breathing-entities delta-time)
   (tick-camera))
 
 
@@ -222,16 +253,21 @@
                 (truncate (* *cell-size* yr)))))
 
 
-(defun blit-player (player)
-  (setf (blt:layer) 2)
+(defun blit-renderable (entity)
+  (setf (blt:layer) (renderable/layer entity))
   (multiple-value-bind (x y dx dy)
-      (screen-coords (loc/x player) (loc/y player))
-    (let ((dx (+ dx (breathing/offset-x player)))
-          (dy (+ dy (breathing/offset-y player))))
-      (setf (blt:color) (renderable/color player)
-            (blt:cell-char x y dx dy) (renderable/glyph player)
-            (blt:cell-char (1- x) y dx (- dy 4)) #\^
+      (screen-coords (loc/x entity) (loc/y entity))
+    (when (breathing? entity)
+      (incf dx (breathing/offset-x entity))
+      (incf dy (breathing/offset-y entity)))
+    (setf (blt:color) (renderable/color entity)
+          (blt:cell-char x y dx dy) (renderable/glyph entity))
+    (when (playerp entity) ; wings
+      (setf (blt:cell-char (1- x) y dx (- dy 4)) #\^
             (blt:cell-char (1+ x) y dx (- dy 4)) #\^))))
+
+(define-system render ((entity renderable))
+  (blit-renderable entity))
 
 
 (defun blit-background-tile (x y bottom?)
@@ -256,7 +292,7 @@
                (blit-background-tile x y bottom?)))))
 
 (defun blit-background ()
-  (setf (blt:layer) 0
+  (setf (blt:layer) *layer-background*
         (blt:font) "tile"
         (blt:color) (blt:blue :saturation 0.8 :value 0.8))
   (iterate (for x :from *camera-x*)
@@ -270,7 +306,7 @@
   (setf (blt:font) "tile"
         (blt:composition) t)
   (blit-background)
-  (blit-player *player*)
+  (run-render)
   (blt:refresh))
 
 

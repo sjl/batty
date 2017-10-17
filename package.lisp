@@ -3,7 +3,8 @@
     :cl
     :beast
     :iterate
-    :losh)
+    :losh
+    :b.quickutils)
   (:export
     :run
     :main))
