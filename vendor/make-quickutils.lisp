@@ -5,8 +5,9 @@
   :utilities '(
 
                :curry
-               :rcurry
                :maxf
+               :rcurry
+               :read-file-into-string
                :with-gensyms
 
                )

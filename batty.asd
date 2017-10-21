@@ -10,6 +10,7 @@
                :deploy
                :black-tie
                :cl-blt
+               :split-sequence
                :cl-pcg
                :harmony
                :harmony-simple

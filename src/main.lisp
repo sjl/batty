@@ -473,6 +473,40 @@
   (harmony-simple:play *sound-chomp* :sfx))
 
 
+;;;; Splash -------------------------------------------------------------------
+(defparameter *logo*
+  (-<> "logo.txt"
+    asset-path
+    read-file-into-string
+    (split-sequence:split-sequence #\newline <>)))
+
+(defun blit-splash-screen ()
+  (blt:clear)
+  (setf (blt:font) "text")
+  (iterate
+    (for w = (* 2 *screen-width*))
+    (for line :in *logo*)
+    (for y :from 0 :by 2)
+    (blt:print 0 y line
+               :width w
+               :halign :center)
+    (finally
+      (blt:print 0 y "([color=green]P[/color])lay" :width w :halign :center)
+      (blt:print 0 (+ 2 y) "([color=red]Q[/color])uit" :width w :halign :center)))
+  (blt:refresh))
+
+(defun splash-screen ()
+  (blit-splash-screen)
+  (iterate
+    (if (blt:has-input-p)
+      (blt:key-case (blt:read)
+        ((or :q :escape :close) (return-from splash-screen))
+        ((or :p :space) (return)))
+      (blt:sleep 1/60))
+    (blt:refresh))
+  (game-loop))
+
+
 ;;;; Main ---------------------------------------------------------------------
 (defun initialize ()
   (clrhash *inputs*)
@@ -485,18 +519,21 @@
         *terrain-seed* (random 500000.0)
         *player* (make-player)))
 
+(defun game-loop ()
+  (iterate
+    (while *running*)
+    (blit)
+    (handle-events)
+    (timing real-time :per-iteration-into delta-time)
+    (tick (/ delta-time internal-time-units-per-second 1.0))))
+
 (defun run ()
   (in-harmony
     (blt:with-terminal
       (config)
       (initialize)
       (with-music
-        (iterate
-          (while *running*)
-          (blit)
-          (handle-events)
-          (timing real-time :per-iteration-into delta-time)
-          (tick (/ delta-time internal-time-units-per-second 1.0)))))))
+        (splash-screen)))))
 
 
 ;;;; Entry --------------------------------------------------------------------

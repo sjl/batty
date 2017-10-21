@@ -2,7 +2,7 @@
 ;;;; See http://quickutil.org for details.
 
 ;;;; To regenerate:
-;;;; (qtlc:save-utils-as "quickutils.lisp" :utilities '(:CURRY :RCURRY :MAXF :WITH-GENSYMS) :ensure-package T :package "B.QUICKUTILS")
+;;;; (qtlc:save-utils-as "quickutils.lisp" :utilities '(:CURRY :MAXF :RCURRY :READ-FILE-INTO-STRING :WITH-GENSYMS) :ensure-package T :package "B.QUICKUTILS")
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (unless (find-package "B.QUICKUTILS")
@@ -14,7 +14,9 @@
 
 (when (boundp '*utilities*)
   (setf *utilities* (union *utilities* '(:MAKE-GENSYM-LIST :ENSURE-FUNCTION
-                                         :CURRY :RCURRY :MAXF
+                                         :CURRY :MAXF :RCURRY :ONCE-ONLY
+                                         :WITH-OPEN-FILE* :WITH-INPUT-FROM-FILE
+                                         :READ-FILE-INTO-STRING
                                          :STRING-DESIGNATOR :WITH-GENSYMS))))
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun make-gensym-list (length &optional (x "G"))
@@ -60,6 +62,11 @@ it is called with to `function`."
            (apply ,fun ,@curries more)))))
   
 
+  (define-modify-macro maxf (&rest numbers) max
+    "Modify-macro for `max`. Sets place designated by the first argument to the
+maximum of its original value and `numbers`.")
+  
+
   (defun rcurry (function &rest arguments)
     "Returns a function that applies the arguments it is called
 with and `arguments` to `function`."
@@ -70,9 +77,95 @@ with and `arguments` to `function`."
         (multiple-value-call fn (values-list more) (values-list arguments)))))
   
 
-  (define-modify-macro maxf (&rest numbers) max
-    "Modify-macro for `max`. Sets place designated by the first argument to the
-maximum of its original value and `numbers`.")
+  (defmacro once-only (specs &body forms)
+    "Evaluates `forms` with symbols specified in `specs` rebound to temporary
+variables, ensuring that each initform is evaluated only once.
+
+Each of `specs` must either be a symbol naming the variable to be rebound, or of
+the form:
+
+    (symbol initform)
+
+Bare symbols in `specs` are equivalent to
+
+    (symbol symbol)
+
+Example:
+
+    (defmacro cons1 (x) (once-only (x) `(cons ,x ,x)))
+      (let ((y 0)) (cons1 (incf y))) => (1 . 1)"
+    (let ((gensyms (make-gensym-list (length specs) "ONCE-ONLY"))
+          (names-and-forms (mapcar (lambda (spec)
+                                     (etypecase spec
+                                       (list
+                                        (destructuring-bind (name form) spec
+                                          (cons name form)))
+                                       (symbol
+                                        (cons spec spec))))
+                                   specs)))
+      ;; bind in user-macro
+      `(let ,(mapcar (lambda (g n) (list g `(gensym ,(string (car n)))))
+              gensyms names-and-forms)
+         ;; bind in final expansion
+         `(let (,,@(mapcar (lambda (g n)
+                             ``(,,g ,,(cdr n)))
+                           gensyms names-and-forms))
+            ;; bind in user-macro
+            ,(let ,(mapcar (lambda (n g) (list (car n) g))
+                    names-and-forms gensyms)
+               ,@forms)))))
+  
+
+  (defmacro with-open-file* ((stream filespec &key direction element-type
+                                                   if-exists if-does-not-exist external-format)
+                             &body body)
+    "Just like `with-open-file`, but `nil` values in the keyword arguments mean to use
+the default value specified for `open`."
+    (once-only (direction element-type if-exists if-does-not-exist external-format)
+      `(with-open-stream
+           (,stream (apply #'open ,filespec
+                           (append
+                            (when ,direction
+                              (list :direction ,direction))
+                            (when ,element-type
+                              (list :element-type ,element-type))
+                            (when ,if-exists
+                              (list :if-exists ,if-exists))
+                            (when ,if-does-not-exist
+                              (list :if-does-not-exist ,if-does-not-exist))
+                            (when ,external-format
+                              (list :external-format ,external-format)))))
+         ,@body)))
+  
+
+  (defmacro with-input-from-file ((stream-name file-name &rest args
+                                                         &key (direction nil direction-p)
+                                                         &allow-other-keys)
+                                  &body body)
+    "Evaluate `body` with `stream-name` to an input stream on the file
+`file-name`. `args` is sent as is to the call to `open` except `external-format`,
+which is only sent to `with-open-file` when it's not `nil`."
+    (declare (ignore direction))
+    (when direction-p
+      (error "Can't specifiy :DIRECTION for WITH-INPUT-FROM-FILE."))
+    `(with-open-file* (,stream-name ,file-name :direction :input ,@args)
+       ,@body))
+  
+
+  (defun read-file-into-string (pathname &key (buffer-size 4096) external-format)
+    "Return the contents of the file denoted by `pathname` as a fresh string.
+
+The `external-format` parameter will be passed directly to `with-open-file`
+unless it's `nil`, which means the system default."
+    (with-input-from-file
+        (file-stream pathname :external-format external-format)
+      (let ((*print-pretty* nil))
+        (with-output-to-string (datum)
+          (let ((buffer (make-array buffer-size :element-type 'character)))
+            (loop
+              :for bytes-read = (read-sequence buffer file-stream)
+              :do (write-sequence buffer datum :start 0 :end bytes-read)
+              :while (= bytes-read buffer-size)))))))
   
 
   (deftype string-designator ()
@@ -119,6 +212,7 @@ unique symbol the named variable will be bound to."
     `(with-gensyms ,names ,@forms))
   
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (export '(curry rcurry maxf with-gensyms with-unique-names)))
+  (export '(curry maxf rcurry read-file-into-string with-gensyms
+            with-unique-names)))
 
 ;;;; END OF quickutils.lisp ;;;;
