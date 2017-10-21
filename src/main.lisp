@@ -29,7 +29,15 @@
 
 
 ;;; Player
-(defparameter *player-velocity* 13.5) ; world cells per second
+(defparameter *player-max-horizontal-velocity* 13.5)
+(defparameter *player-horizontal-acceleration* 50.0)
+(defparameter *player-horizontal-friction* 0.95)
+
+(defparameter *player-max-vertical-velocity* 15.0)
+(defparameter *player-flap-velocity* -15.0)
+(defparameter *player-gravity* 30.0)
+
+(defparameter *player-flap-cooldown* 0.2) ; seconds
 
 (defparameter *score* 0)
 
@@ -51,7 +59,7 @@
 
 
 ;;; Squeak
-(defparameter *squeak-cooldown* 0.2) ; seconds
+(defparameter *squeak-cooldown* 0.3) ; seconds
 (defparameter *squeak-velocity* 40.0) ; world cells per second
 (defparameter *squeak-radar-scale* 7.0) ; width of the radar circle thing
 (defparameter *squeak-mobs-scale* 30.0)
@@ -125,6 +133,8 @@
   (y :initform 0.0 :type single-float))
 
 (define-aspect moveable
+  (ax :initform 0.0 :type single-float)
+  (ay :initform 0.0 :type single-float)
   (vx :initform 0.0 :type single-float)
   (vy :initform 0.0 :type single-float))
 
@@ -193,7 +203,8 @@
 ;;;; Player -------------------------------------------------------------------
 
 (define-entity player (loc renderable moveable breathing)
-  (squeak-cooldown :accessor player/squeak-cooldown :initform 0.0))
+  (squeak-cooldown :accessor player/squeak-cooldown :initform 0.0)
+  (flap-cooldown :accessor player/flap-cooldown :initform 0.0))
 
 (defun make-player ()
   (create-entity 'player
@@ -221,35 +232,78 @@
         *squeak-origin-y* (loc/y player)
         (player/squeak-cooldown player) *squeak-cooldown*))
 
+
+(defun flappablep (player)
+  (zerop (player/flap-cooldown player)))
+
+(defun flap (player)
+  (setf (player/flap-cooldown player) *player-flap-cooldown*
+        (moveable/vy player) *player-flap-velocity*))
+
+
 (defun tick-player-squeak (player delta-time)
   (zapf (player/squeak-cooldown player)
         (max 0.0 (- % delta-time))))
 
+(defun tick-player-flap (player delta-time)
+  (zapf (player/flap-cooldown player)
+        (max 0.0 (- % delta-time))))
+
+
 (defun tick-player-input (player)
-  (when (and (gethash :squeak *inputs*)
-             (squeakablep player))
-    (squeak player))
-  (setf
-    (moveable/vy player) (cond
-                           ((gethash :up *inputs*) (- *player-velocity*))
-                           ((gethash :down *inputs*) *player-velocity*)
-                           (t 0.0))
-    (moveable/vx player) (cond
-                           ((gethash :left *inputs*) (- *player-velocity*))
-                           ((gethash :right *inputs*) *player-velocity*)
-                           (t 0.0))))
+  (let ((l? (gethash :left *inputs*))
+        (r? (gethash :right *inputs*))
+        (flap? (gethash :flap *inputs*))
+        (squeak? (gethash :squeak *inputs*)))
+    ;; squeaking
+    (when (and squeak? (squeakablep player))
+      (squeak player))
+    (when (and flap? (flappablep player))
+      (flap player))
+    (setf
+      ;; vertical movement (flaps)
+      (moveable/ay player) *player-gravity*
+      ;; horizontal movement
+      (moveable/ax player) (cond ((and l? r?) 0.0)
+                                 (l? (- *player-horizontal-acceleration*))
+                                 (r? *player-horizontal-acceleration*)
+                                 (t 0.0)))))
 
 (defun left-of-camera-p (x)
   (< x *camera-x*))
 
+
+(defun clamp-player-velocity-horizontal (v)
+  (clamp (- *player-max-horizontal-velocity*)
+         v
+         *player-max-horizontal-velocity*))
+
+(defun clamp-player-velocity-vertical (v)
+  (clamp (- *player-max-vertical-velocity*)
+         v
+         *player-max-vertical-velocity*))
+
 (defun tick-player-position (player delta-time)
   (let* ((x (loc/x player))
          (y (loc/y player))
-         (dx (* delta-time (moveable/vx player)))
-         (dy (* delta-time (moveable/vy player)))
-         (blocked-horizontally (or (collides-with-terrain-p (+ x dx) y)
-                                   (left-of-camera-p (+ x dx)))))
-    (unless blocked-horizontally
+         (ax (moveable/ax player))
+         (ay (moveable/ay player))
+         (vx (zapf (moveable/vx player)
+                   (-<> (+ % (* delta-time ax))
+                     clamp-player-velocity-horizontal
+                     (* *player-horizontal-friction* <>))))
+         (vy (zapf (moveable/vy player)
+                   (+ % (* delta-time ay))))
+         (dx (* delta-time vx))
+         (dy (* delta-time vy))
+         (blocked-horizontally? (or (collides-with-terrain-p (+ x dx) y)
+                                    (left-of-camera-p (+ x dx)))))
+    ;; (pr x y)
+    ;; (pr ax ay (* delta-time ay))
+    ;; (pr vx vy)
+    ;; (pr dx dy)
+    ;; (pr '---------------)
+    (unless blocked-horizontally?
       (incf (loc/x player) dx)
       (incf x dx))
     (unless (collides-with-terrain-p x (+ y dy))
@@ -257,6 +311,7 @@
 
 (defun tick-player (player delta-time)
   (tick-player-squeak player delta-time)
+  (tick-player-flap player delta-time)
   (tick-player-input player)
   (tick-player-position player delta-time))
 
@@ -405,8 +460,9 @@
                                        (if player? 1.0 alpha))
               (blt:cell-char x y dx dy) (renderable/glyph entity))
         (when (playerp entity) ; wings
-          (setf (blt:cell-char (1- x) y dx (- dy 4)) #\^
-                (blt:cell-char (1+ x) y dx (- dy 4)) #\^))))))
+          (let ((f (if (flappablep entity) 0 6)))
+            (setf (blt:cell-char (1- x) y dx (+ dy f -4)) #\^
+                  (blt:cell-char (1+ x) y dx (+ dy f -4)) #\^)))))))
 
 (define-system render ((entity renderable))
   (blit-renderable entity))
@@ -495,16 +551,14 @@
 (defun event ()
   (if (blt:has-input-p)
     (blt:key-case (blt:read)
-      ((or (:up    :down) (:w :down)) '(:keydown :up))
-      ((or (:left  :down) (:a :down)) '(:keydown :left))
-      ((or (:down  :down) (:s :down)) '(:keydown :down))
-      ((or (:right :down) (:d :down)) '(:keydown :right))
-      ((or (:up    :up)   (:w :up))   '(:keyup :up))
-      ((or (:left  :up)   (:a :up))   '(:keyup :left))
-      ((or (:down  :up)   (:s :up))   '(:keyup :down))
-      ((or (:right :up)   (:d :up))   '(:keyup :right))
       ((:m :down) '(:keydown :squeak))
       ((:m :up)   '(:keyup   :squeak))
+      ((:n :down) '(:keydown :flap))
+      ((:n :up)   '(:keyup   :flap))
+      ((:z :down) '(:keydown :left))
+      ((:z :up)   '(:keyup   :left))
+      ((:x :down) '(:keydown :right))
+      ((:x :up)   '(:keyup   :right))
       (:f1 '(:regen))
       (:escape '(:quit))
       (:close '(:quit)))
