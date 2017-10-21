@@ -8,6 +8,9 @@
 (defparameter *cell-size* 8)
 (defparameter *offscreen-buffer* 10)
 
+(defparameter *camera-scroll-rate* 40)
+(defparameter *camera-scroll-boundary* 0.9)
+
 
 ;;; Directories
 (defparameter *assets-directory*
@@ -35,7 +38,8 @@
 (defparameter *layer-background* 0)
 (defparameter *layer-bugs* 1)
 (defparameter *layer-player* 2)
-(defparameter *layer-hud* 3)
+(defparameter *layer-squeak* 3)
+(defparameter *layer-hud* 4)
 
 
 ;;; Terrain
@@ -46,6 +50,15 @@
 (defparameter *terrain-seed* 0.0)
 
 
+;;; Squeak
+(defparameter *squeak-cooldown* 0.2) ; seconds
+(defparameter *squeak-velocity* 40.0) ; world cells per second
+(defparameter *squeak-radar-scale* 7.0) ; width of the radar circle thing
+(defparameter *squeak-mobs-scale* 30.0)
+(defparameter *squeak-bg-scale* 30.0)
+(defparameter *squeak-radar-opacity* 0.7)
+
+
 ;;;; State --------------------------------------------------------------------
 (defvar *running* t)
 
@@ -53,6 +66,10 @@
 (defvar *inputs* (make-hash-table))
 (defvar *camera-x* 0)
 (defvar *camera-y* 0)
+(defvar *seconds-since-squeak* 0.0)
+(defvar *squeak-radius* 0.0)
+(defvar *squeak-origin-x* 0)
+(defvar *squeak-origin-y* 0)
 
 
 ;;;; Config -------------------------------------------------------------------
@@ -174,7 +191,9 @@
 
 
 ;;;; Player -------------------------------------------------------------------
-(define-entity player (loc renderable moveable breathing))
+
+(define-entity player (loc renderable moveable breathing)
+  (squeak-cooldown :accessor player/squeak-cooldown :initform 0.0))
 
 (defun make-player ()
   (create-entity 'player
@@ -192,7 +211,24 @@
   (eq entity *player*))
 
 
+(defun squeakablep (player)
+  (zerop (player/squeak-cooldown player)))
+
+(defun squeak (player)
+  (setf *seconds-since-squeak* 0.0
+        *squeak-radius* 0.0
+        *squeak-origin-x* (loc/x player)
+        *squeak-origin-y* (loc/y player)
+        (player/squeak-cooldown player) *squeak-cooldown*))
+
+(defun tick-player-squeak (player delta-time)
+  (zapf (player/squeak-cooldown player)
+        (max 0.0 (- % delta-time))))
+
 (defun tick-player-input (player)
+  (when (and (gethash :squeak *inputs*)
+             (squeakablep player))
+    (squeak player))
   (setf
     (moveable/vy player) (cond
                            ((gethash :up *inputs*) (- *player-velocity*))
@@ -202,7 +238,6 @@
                            ((gethash :left *inputs*) (- *player-velocity*))
                            ((gethash :right *inputs*) *player-velocity*)
                            (t 0.0))))
-
 
 (defun left-of-camera-p (x)
   (< x *camera-x*))
@@ -220,8 +255,8 @@
     (unless (collides-with-terrain-p x (+ y dy))
       (incf (loc/y player) dy))))
 
-
 (defun tick-player (player delta-time)
+  (tick-player-squeak player delta-time)
   (tick-player-input player)
   (tick-player-position player delta-time))
 
@@ -309,19 +344,23 @@
       (map nil #'destroy-entity bugs))))
 
 
+(defun tick-squeak (delta-time)
+  (incf *seconds-since-squeak* delta-time)
+  (setf *squeak-radius* (* *squeak-velocity* *seconds-since-squeak*)))
+
 (defun tick-camera ()
   (when (>= (- (loc/x *player*) *camera-x*)
-            (* 0.90 *screen-width*))
-    (incf *camera-x* 10)))
+            (* *camera-scroll-boundary* *screen-width*))
+    (incf *camera-x* *camera-scroll-rate*)))
 
 (defun tick (delta-time)
   (run-clear-offscreen)
   (eat-bugs)
   (tick-player *player* delta-time)
+  (tick-squeak delta-time)
   (tick-breathing-entities delta-time)
   (tick-camera)
   (ensure-chunk (loc/x *player*)))
-
 
 
 ;;;; UI -----------------------------------------------------------------------
@@ -340,34 +379,51 @@
                 (truncate (* *cell-size* xr))
                 (truncate (* *cell-size* yr)))))
 
+(defun world-coords (sx sy)
+  "Translate screen coordinates into world coordinates."
+  (values (+ *camera-x* sx)
+          (+ *camera-y* sy)))
+
+
+(defun-inline alpha-patch (color alpha)
+  ;; ugly hack taking advantage of the internal fact that blt stores the alpha
+  ;; in the high-order byte of the color
+  (dpb (truncate (* 255 alpha)) (byte 8 24) color))
 
 (defun blit-renderable (entity)
-  (setf (blt:layer) (renderable/layer entity))
-  (multiple-value-bind (x y dx dy)
-      (screen-coords (loc/x entity) (loc/y entity))
-    (when (breathing? entity)
-      (incf dx (breathing/offset-x entity))
-      (incf dy (breathing/offset-y entity)))
-    (setf (blt:color) (renderable/color entity)
-          (blt:cell-char x y dx dy) (renderable/glyph entity))
-    (when (playerp entity) ; wings
-      (setf (blt:cell-char (1- x) y dx (- dy 4)) #\^
-            (blt:cell-char (1+ x) y dx (- dy 4)) #\^))))
+  (let* ((x (loc/x entity))
+         (y (loc/y entity))
+         (alpha (squeak-alpha x y *squeak-mobs-scale*))
+         (player? (playerp entity)))
+    (when (or player? (<= 0.0 alpha 1.0))
+      (setf (blt:layer) (renderable/layer entity))
+      (multiple-value-bind (x y dx dy) (screen-coords x y)
+        (when (breathing? entity)
+          (incf dx (breathing/offset-x entity))
+          (incf dy (breathing/offset-y entity)))
+        (setf (blt:color) (alpha-patch (renderable/color entity)
+                                       (if player? 1.0 alpha))
+              (blt:cell-char x y dx dy) (renderable/glyph entity))
+        (when (playerp entity) ; wings
+          (setf (blt:cell-char (1- x) y dx (- dy 4)) #\^
+                (blt:cell-char (1+ x) y dx (- dy 4)) #\^))))))
 
 (define-system render ((entity renderable))
   (blit-renderable entity))
 
 
 (defun blit-background-tile (x y bottom?)
-  (multiple-value-bind (sx sy)
-      (screen-coords x y)
-    (setf
-      ;; shittastic hack because BLT fucks up the spacing when
-      ;; drawing an opaque background on non-1x1 fonts
-      (blt:color) (blt:blue :saturation 0.8 :value 0.4)
-      (blt:cell-char sx sy) #\FULL_BLOCK
-      (blt:color) (blt:blue :saturation 0.7 :value 0.9)
-      (blt:cell-char sx sy) (if bottom? #\M #\W))))
+  (let ((alpha (squeak-alpha x y *squeak-bg-scale*)))
+    (when (<= 0.0 alpha 1.0)
+      (multiple-value-bind (sx sy)
+          (screen-coords x y)
+        (setf
+          ;; shittastic hack because BLT fucks up the spacing when
+          ;; drawing an opaque background on non-1x1 fonts
+          (blt:color) (blt:blue :saturation 0.8 :value 0.4 :alpha alpha)
+          (blt:cell-char sx sy) #\FULL_BLOCK
+          (blt:color) (blt:blue :saturation 0.7 :value 0.9 :alpha alpha)
+          (blt:cell-char sx sy) (if bottom? #\M #\W))))))
 
 (defun blit-background-column (x bottom?)
   (let ((height (terrain-height x bottom?)))
@@ -403,12 +459,34 @@
                          (format nil "BUGS EATEN: ~D" *score*)))
 
 
+(defun distance-to-squeak-origin (x y)
+  (distance x y *squeak-origin-x* *squeak-origin-y*))
+
+(defun distance-to-squeak (x y)
+  (- *squeak-radius* (distance-to-squeak-origin x y)))
+
+(defun squeak-alpha (x y scale)
+  (map-range 0.0 scale 1.0 0.0 (distance-to-squeak x y)))
+
+
+(defun blit-squeak ()
+  (setf (blt:font) "tile")
+  (iterate
+    (for-nested ((sx :from 0 :below *screen-width*)
+                 (sy :from 0 :below *screen-height*)))
+    (for (values x y) = (world-coords sx sy))
+    (for alpha = (squeak-alpha x y *squeak-radar-scale*))
+    (when (<= 0.0 alpha 1.0)
+      (setf (blt:color) (blt:white :alpha (* *squeak-radar-opacity* (square alpha)))
+            (blt:cell-char (* 2 sx) (* 2 sy)) #\full_block))))
+
 (defun blit ()
   (blt:clear)
   (setf (blt:font) "tile"
         (blt:composition) t)
   (blit-background)
   (run-render)
+  (blit-squeak)
   (blit-hud)
   (blt:refresh))
 
@@ -425,6 +503,8 @@
       ((or (:left  :up)   (:a :up))   '(:keyup :left))
       ((or (:down  :up)   (:s :up))   '(:keyup :down))
       ((or (:right :up)   (:d :up))   '(:keyup :right))
+      ((:m :down) '(:keydown :squeak))
+      ((:m :up)   '(:keyup   :squeak))
       (:f1 '(:regen))
       (:escape '(:quit))
       (:close '(:quit)))
@@ -486,7 +566,7 @@
   (iterate
     (for w = (* 2 *screen-width*))
     (for line :in *logo*)
-    (for y :from 0 :by 2)
+    (for y :from 10 :by 2)
     (blt:print 0 y line
                :width w
                :halign :center)
@@ -515,9 +595,12 @@
         *camera-x* 0
         *camera-y* 0
         *current-chunk* -1
+        *player* (make-player)
+        *squeak-origin-x* (loc/x *player*)
+        *squeak-origin-y* (loc/y *player*)
+        *seconds-since-squeak* 0.0
         *score* 0
-        *terrain-seed* (random 500000.0)
-        *player* (make-player)))
+        *terrain-seed* (random 500000.0)))
 
 (defun game-loop ()
   (iterate
@@ -557,13 +640,3 @@
 
 
 ;;;; Scratch ------------------------------------------------------------------
-;; (setf *running* nil)
-;; (harmony-simple:start)
-;; (harmony-simple:stop)
-
-;; (defparameter *c*
-;;   (harmony-simple:play #p"assets/sounds/chomp.mp3" :sfx :paused nil))
-
-;; (harmony:resume *c*)
-
-;; (harmony-simple:play (random-song-path) :music)
