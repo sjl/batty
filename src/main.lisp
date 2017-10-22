@@ -579,6 +579,56 @@
       (handle-event event))))
 
 
+;;;; Harmony ------------------------------------------------------------------
+(defclass sine-source (harmony:source)
+  ((pos :initform 0.0 :accessor pos)
+   (hz :initform 440.0 :accessor hz)))
+
+(defmethod initialize-instance :after ((source sine-source) &key)
+  (setf (harmony:decoder source) 'decode))
+
+(defmethod harmony:initialize-channel ((source sine-source))
+  (cl-mixed:make-channel nil 4096 :float 1 :alternating 44100))
+
+(defmethod seek-to-sample ((source sine-source) position)
+  (setf (pos source) position))
+
+(defun time-per-sample (sample-rate hz)
+  (* (coerce tau 'single-float) hz (/ sample-rate)))
+
+(defun decode (samples source)
+  (let ((buffer (cl-mixed:data (cl-mixed:channel source)))
+        (time-per-sample (time-per-sample (cl-mixed:samplerate source)
+                                          (hz source))))
+    (iterate
+      (with start-time = (pos source))
+      (for time :from start-time :by time-per-sample)
+      (for i :from 0 :below samples)
+      (for s = (sin time))
+      (setf (cffi:mem-aref buffer :float i) s)
+      (finally (setf (pos source)
+                     (mod time (coerce tau 'single-float)))))))
+
+;; (harmony-simple:start)
+;; (harmony-simple:play "assets/sounds/chomp.mp3" :sfx)
+;; (harmony-simple:stop)
+
+;; (defparameter *sine*
+;;   (make-instance 'sine-source
+;;                  :server harmony-simple:*server*
+;;                  :paused nil
+;;                  :loop nil
+;;                  :location nil
+;;                  :velocity nil))
+
+;; (setf (harmony:volume *sine*) 0.2)
+
+;; (defparameter *mix* (harmony:segment :sfx harmony-simple:*server*))
+
+;; (harmony:add *sine* *mix*)
+;; (harmony:withdraw *sine* *mix*)
+
+
 ;;;; Audio --------------------------------------------------------------------
 (defvar *music* nil)
 
