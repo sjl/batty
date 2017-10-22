@@ -4,8 +4,8 @@
 
 ;;; UI
 (defparameter *screen-width* 64)
-(defparameter *screen-height* 48)
-(defparameter *cell-size* 8)
+(defparameter *screen-height* 40)
+(defparameter *cell-size* 10)
 (defparameter *offscreen-buffer* 10)
 
 (defparameter *camera-scroll-rate* 40)
@@ -67,6 +67,11 @@
 (defparameter *squeak-radar-opacity* 0.7)
 
 
+;;; Jankass Hyperlinks
+(defparameter *music-link* (blt:rgba #x88 #x88 #xFF))
+(defparameter *sound-link* (blt:rgba #x88 #x88 #xFE))
+
+
 ;;;; State --------------------------------------------------------------------
 (defvar *running* t)
 
@@ -90,7 +95,10 @@
   (blt:set "font: ~A, size=~Dx~:*~D, spacing=2x2;"
            (asset-path "ProggySquare/ProggySquare.ttf")
            (* 2 *cell-size*))
-  (blt:set "tile font: ~A, size=~Dx~:*~D, spacing=2x2;"
+  (blt:set "tiny font: ~A, size=~Dx~:*~D, spacing=1x1, mode=monochrome;"
+           (asset-path "ProggySquare/ProggySquare.ttf")
+           *cell-size*)
+  (blt:set "tile font: ~A, size=~Dx~:*~D, spacing=2x2, mode=monochrome;"
            (asset-path "ProggySquare/ProggySquare.ttf")
            (* 2 *cell-size*))
   (blt:set "text font: ~A, size=~Dx~D, spacing=1x2;"
@@ -107,7 +115,7 @@
   (blt:set "window.cellsize = ~Dx~:*~D" *cell-size*)
   (blt:set "window.resizeable = false")
   (blt:set "output.vsync = true")
-  (blt:set "input.filter = keyboard+")
+  (blt:set "input.filter = keyboard+,mouse")
   (config-fonts))
 
 
@@ -669,6 +677,20 @@
 
 
 ;;;; Splash -------------------------------------------------------------------
+(defun open-link (link)
+  (uiop:run-program (list "/usr/bin/open" link)
+                        :ignore-error-status t))
+
+(defun link-clicked ()
+  ;; don't judge me
+  (let ((color (blt:cell-color (blt:mouse-x) (blt:mouse-y))))
+    (cond
+      ((= color *music-link*)
+       "http://freemusicarchive.org/music/Rolemusic/The_Black_Dot/")
+      ((= color *sound-link*)
+       "https://freesound.org/people/timgormly/packs/10094/")
+      (t nil))))
+
 (defun controls-screen ()
   (blit-file-to-screen "controls.txt")
   (iterate
@@ -686,7 +708,9 @@
     (if (blt:has-input-p)
       (blt:key-case (blt:read)
         ((or :q :escape :close) (return-from splash-screen))
-        ((or :p :space) (controls-screen)))
+        ((or :p :space) (controls-screen))
+        (:mouse-left (when-let ((link (link-clicked)))
+                       (open-link link))))
       (blt:sleep 1/60))))
 
 

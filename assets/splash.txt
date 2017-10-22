@@ -11,10 +11,11 @@
 
 
 
-
+[font=tiny]
 Made by Steve Losh for the Lisp Game Jam in October 2017
 
 
+Music by Rolemusic: [color=#8888ff]http://freemusicarchive.org/music/Rolemusic/The_Black_Dot/[/color]
 
-Music by Rolemusic: http://freemusicarchive.org/music/Rolemusic/The_Black_Dot/
-Sound by timgormly: https://freesound.org/people/timgormly/packs/10094/
+Sound by timgormly: [color=#8888fe]https://freesound.org/people/timgormly/packs/10094/[/color]
+[/font]
