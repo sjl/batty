@@ -678,8 +678,11 @@
 
 ;;;; Splash -------------------------------------------------------------------
 (defun open-link (link)
-  (uiop:run-program (list "/usr/bin/open" link)
-                        :ignore-error-status t))
+  ;; something shits the bed if you try to do this on the game loop thread
+  ;; computers are garbage
+  (bt:make-thread (lambda ()
+                    (uiop:run-program (list "/usr/bin/open" link)
+                                      :ignore-error-status t))))
 
 (defun link-clicked ()
   ;; don't judge me
