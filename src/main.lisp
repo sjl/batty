@@ -681,15 +681,13 @@
   (game-loop))
 
 (defun splash-screen ()
-  (blit-file-to-screen "splash.txt")
   (iterate
+    (blit-file-to-screen "splash.txt")
     (if (blt:has-input-p)
       (blt:key-case (blt:read)
         ((or :q :escape :close) (return-from splash-screen))
-        ((or :p :space) (return)))
-      (blt:sleep 1/60))
-    (blt:refresh))
-  (controls-screen))
+        ((or :p :space) (controls-screen)))
+      (blt:sleep 1/60))))
 
 
 ;;;; Main ---------------------------------------------------------------------
@@ -708,6 +706,7 @@
         *terrain-seed* (random 500000.0)))
 
 (defun game-loop ()
+  (initialize)
   (iterate
     (while *running*)
     (blit)
@@ -719,7 +718,6 @@
   (in-harmony
     (blt:with-terminal
       (config)
-      (initialize)
       (with-music
         (splash-screen)))))
 
