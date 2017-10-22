@@ -547,6 +547,17 @@
   (blt:refresh))
 
 
+(defun blit-file-to-screen (file)
+  (blt:clear)
+  (setf (blt:font) "text")
+  (blt:print 0 0 (read-file-into-string (asset-path file))
+             :width (* 2 *screen-width*)
+             :height (* 2 *screen-height*)
+             :halign :center
+             :valign :center)
+  (blt:refresh))
+
+
 ;;;; Input --------------------------------------------------------------------
 (defun event ()
   (if (blt:has-input-p)
@@ -658,29 +669,19 @@
 
 
 ;;;; Splash -------------------------------------------------------------------
-(defparameter *logo*
-  (-<> "logo.txt"
-    asset-path
-    read-file-into-string
-    (split-sequence:split-sequence #\newline <>)))
-
-(defun blit-splash-screen ()
-  (blt:clear)
-  (setf (blt:font) "text")
+(defun controls-screen ()
+  (blit-file-to-screen "controls.txt")
   (iterate
-    (for w = (* 2 *screen-width*))
-    (for line :in *logo*)
-    (for y :from 10 :by 2)
-    (blt:print 0 y line
-               :width w
-               :halign :center)
-    (finally
-      (blt:print 0 y "([color=green]P[/color])lay" :width w :halign :center)
-      (blt:print 0 (+ 2 y) "([color=red]Q[/color])uit" :width w :halign :center)))
-  (blt:refresh))
+    (if (blt:has-input-p)
+      (blt:key-case (blt:read)
+        ((or :escape :close) (return-from controls-screen))
+        ((or :m :space) (return)))
+      (blt:sleep 1/60))
+    (blt:refresh))
+  (game-loop))
 
 (defun splash-screen ()
-  (blit-splash-screen)
+  (blit-file-to-screen "splash.txt")
   (iterate
     (if (blt:has-input-p)
       (blt:key-case (blt:read)
@@ -688,7 +689,7 @@
         ((or :p :space) (return)))
       (blt:sleep 1/60))
     (blt:refresh))
-  (game-loop))
+  (controls-screen))
 
 
 ;;;; Main ---------------------------------------------------------------------
@@ -733,12 +734,13 @@
 (defun main ()
   (sb-ext:disable-debugger)
   (setf *random-state* (make-random-state t))
-  (with-open-file-dammit (*error-output* "/Users/sjl/src/batty/errors.log"
+  (with-open-file-dammit (*error-output* (asset-path "errors.log")
                                          :direction :output
                                          :if-exists :supersede)
-    (with-open-file-dammit (*standard-output* "/Users/sjl/src/batty/out.log"
+    (with-open-file-dammit (*standard-output* (asset-path "output.log")
                                               :direction :output
                                               :if-exists :supersede)
+      (pr 'started)
       (run)))
   (sb-ext:exit :code 0))
 

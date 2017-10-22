@@ -1,0 +1,13 @@
+               YOU ARE A BAT               
+                FLAP TO FLY                
+           SQUEAK TO SEE THINGS            
+            EAT BUGS FOR POINTS            
+                                           
+  MOVEMENT                      CONTROLS   
+                                           
+<-- Z  X -->                      N  M     
+                                  ^  ^     
+    QUIT                          |  |     
+   Escape                      Flap  Squeak
+                                           
+              SQUEAK TO START!             

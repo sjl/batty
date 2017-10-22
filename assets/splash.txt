@@ -1,0 +1,27 @@
+      __    ______ 
+     / /_  / ____ \
+    / __ \/ / __ `/
+   / /_/ / / /_/ / 
+  /_.___/\ \__,_/  
+   __  __ \____/   
+  / /_/ /___  __   
+ / __/ __/ / / /   
+/ /_/ /_/ /_/ /    
+\__/\__/\__, /     
+       /____/      
+
+
+([color=green]P[/color])lay
+([color=red]Q[/color])uit
+
+
+
+
+
+
+Made by Steve Losh for the Lisp Game Jam in October 2017
+
+
+
+Music by Rolemusic: http://freemusicarchive.org/music/Rolemusic/The_Black_Dot/
+Sound by timgormly: https://freesound.org/people/timgormly/packs/10094/
