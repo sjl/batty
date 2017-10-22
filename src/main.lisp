@@ -98,7 +98,7 @@
   (blt:set "tiny font: ~A, size=~Dx~:*~D, spacing=1x1, mode=monochrome;"
            (asset-path "ProggySquare/ProggySquare.ttf")
            *cell-size*)
-  (blt:set "tile font: ~A, size=~Dx~:*~D, spacing=2x2, mode=monochrome;"
+  (blt:set "tile font: ~A, size=~Dx~:*~D, spacing=2x2;"
            (asset-path "ProggySquare/ProggySquare.ttf")
            (* 2 *cell-size*))
   (blt:set "text font: ~A, size=~Dx~D, spacing=1x2;"
@@ -665,7 +665,7 @@
 (defmacro with-music (&body body)
   `(unwind-protect
      (progn
-       (setf *music* (harmony-simple:play (random-song) :music))
+       (setf *music* (harmony-simple:play (random-song) :music :loop t :volume 0.1))
        ,@body)
      (progn
        (harmony-simple:stop *music*)
@@ -712,8 +712,9 @@
       (blt:key-case (blt:read)
         ((or :q :escape :close) (return-from splash-screen))
         ((or :p :space) (controls-screen))
-        (:mouse-left (when-let ((link (link-clicked)))
-                       (open-link link))))
+        ;; (:mouse-left (when-let ((link (link-clicked)))
+        ;;                (open-link link)))
+        )
       (blt:sleep 1/60))))
 
 
