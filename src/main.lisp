@@ -13,19 +13,19 @@
 
 
 ;;; Directories
-(defparameter *assets-directory*
+(defun assets-directory ()
   (merge-pathnames #p"assets/" (deploy:data-directory)))
 
-(defparameter *music-directory*
-  (merge-pathnames #p"music/" *assets-directory*))
+(defun music-directory ()
+  (merge-pathnames #p"music/" (assets-directory)))
 
-(defparameter *sounds-directory*
-  (merge-pathnames #p"sounds/" *assets-directory*))
+(defun sounds-directory ()
+  (merge-pathnames #p"sounds/" (assets-directory)))
 
 
 ;;; SFX
-(defparameter *sound-chomp*
-  (merge-pathnames #p"chomp.mp3" *sounds-directory*))
+(defun sound-chomp ()
+  (merge-pathnames #p"chomp.mp3" (sounds-directory)))
 
 
 ;;; Player
@@ -88,7 +88,7 @@
 ;;;; Config -------------------------------------------------------------------
 (defun asset-path (filename)
   (-<> filename
-    (merge-pathnames (pathname <>) *assets-directory*)
+    (merge-pathnames (pathname <>) (assets-directory))
     (namestring <>)))
 
 (defun config-fonts ()
@@ -653,7 +653,7 @@
 
 (defun random-song ()
   (random-elt (directory (make-pathname :name :wild :type "mp3"
-                                        :defaults *music-directory*))))
+                                        :defaults (music-directory)))))
 
 (defmacro in-harmony (&body body)
   `(unwind-protect
@@ -673,7 +673,7 @@
 
 
 (defun play-chomp ()
-  (harmony-simple:play *sound-chomp* :sfx))
+  (harmony-simple:play (sound-chomp) :sfx))
 
 
 ;;;; Splash -------------------------------------------------------------------
